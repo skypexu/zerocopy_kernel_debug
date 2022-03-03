@@ -1,0 +1,40 @@
+#!/usr/bin/env bpftrace
+
+#include <linux/socket.h>
+#include <net/sock.h>
+#include <linux/types.h>
+#include <linux/stddef.h>
+#include <linux/netdevice.h>
+#include <stddef.h>
+
+BEGIN {
+    @first = 1;
+    $ptype_all = kaddr("ptype_all");
+    $type = (struct list_head*)$ptype_all;
+    if ($type->next == $type) {
+     printf("Empty ptype_all list\n");
+    }
+    printf("Ctrl-C to Stop...\n");
+}
+
+kprobe:dev_queue_xmit_nit
+{
+    if (@first <= 1000) {
+        $dev = ((struct net_device *)arg1);
+        printf("%s %s\n", $dev->name, kstack);
+        @first++;
+        $head = (struct list_head *)((uint64)$dev + 144);
+        $next = $head->next;
+        unroll(5) {
+           if ($next != $head) {
+	       $ptype = (struct packet_type *)((uint64)$next - 48);
+	       printf("head:%x, curr:%x, type:%04x, next:%x %s\n", $head, $next, $ptype->type, $next->next, ksym($ptype->func));
+               $next = $next->next;
+	   }
+        }
+    }
+}
+
+END {
+    printf("Done\n");
+}
